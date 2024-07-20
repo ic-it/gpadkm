@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"time"
@@ -31,6 +32,18 @@ func main() {
 
 	ke, err := gpadkm.NewKeyboardEmulator([]uinput.EventCode{
 		uinput.KEY_LEFTMETA,
+		uinput.KEY_SPACE,
+		uinput.KEY_ESC,
+		uinput.KEY_LEFTCTRL,
+		uinput.KEY_ENTER,
+
+		uinput.KEY_UP,
+		uinput.KEY_DOWN,
+		uinput.KEY_LEFT,
+		uinput.KEY_RIGHT,
+
+		uinput.KEY_V,
+		uinput.KEY_C,
 	})
 	if err != nil {
 		log.Fatalf("error creating keyboard emulator: %v", err)
@@ -44,24 +57,38 @@ func main() {
 	moveX, moveY := 0., 0.
 	scrollX, scrollY := 0, 0
 	super := false
-	leftMouse := false
-	rightMouse := false
+	escape := false
+	lkm, rkm := false, false
+	kup, kdown, kleft, kright := false, false, false, false
+
+	kspace := false
+	enter := false
+	lastScrollX, lastScrollY := time.Now(), time.Now()
+	keyV, keyC := false, false
+	ctrl := false
 	go func(ctx context.Context) {
 		for {
+			keymap := map[uinput.EventCode]bool{
+				uinput.KEY_UP:    kup,
+				uinput.KEY_DOWN:  kdown,
+				uinput.KEY_LEFT:  kleft,
+				uinput.KEY_RIGHT: kright,
+
+				uinput.KEY_LEFTMETA: super,
+				uinput.KEY_SPACE:    kspace,
+				uinput.KEY_ESC:      escape,
+				uinput.KEY_ENTER:    enter,
+
+				uinput.KEY_V:        keyV,
+				uinput.KEY_C:        keyC,
+				uinput.KEY_LEFTCTRL: ctrl,
+			}
 			select {
 			case <-ctx.Done():
+				log.Println("Exiting")
 				return
 			default:
-				if super {
-					if err := ke.KeyDown(uinput.KEY_LEFTMETA); err != nil {
-						log.Printf("error pressing key: %v", err)
-					}
-				} else {
-					if err := ke.KeyUp(uinput.KEY_LEFTMETA); err != nil {
-						log.Printf("error releasing key: %v", err)
-					}
-				}
-				if leftMouse && rightMouse {
+				if lkm && rkm {
 					if err := me.ButtonDown(uinput.BTN_MIDDLE); err != nil {
 						log.Printf("error pressing button: %v", err)
 					}
@@ -72,7 +99,7 @@ func main() {
 					}
 				}
 
-				if leftMouse {
+				if lkm {
 					if err := me.ButtonDown(uinput.BTN_LEFT); err != nil {
 						log.Printf("error pressing button: %v", err)
 					}
@@ -81,7 +108,7 @@ func main() {
 						log.Printf("error releasing button: %v", err)
 					}
 				}
-				if rightMouse {
+				if rkm {
 					if err := me.ButtonDown(uinput.BTN_RIGHT); err != nil {
 						log.Printf("error pressing button: %v", err)
 					}
@@ -92,14 +119,38 @@ func main() {
 				}
 
 			skipLR:
+				for k, v := range keymap {
+					if v {
+						if err := ke.KeyDown(k); err != nil {
+							log.Printf("error pressing key: %v", err)
+						}
+					} else {
+						if err := ke.KeyUp(k); err != nil {
+							log.Printf("error releasing key: %v", err)
+						}
+					}
+				}
 
 				moveX := int(moveX * maxSpeed)
 				moveY := int(moveY * maxSpeed)
 				if err := me.Move(moveX, moveY); err != nil {
 					log.Printf("error moving mouse: %v", err)
 				}
-				if err := me.Scroll(scrollX, -scrollY); err != nil {
-					log.Printf("error scrolling mouse: %v", err)
+				if scrollX != 0 {
+					if time.Since(lastScrollX) > time.Second/time.Duration(math.Abs(float64(scrollX))) {
+						if err := me.Scroll(scrollX, 0); err != nil {
+							log.Printf("error scrolling mouse: %v", err)
+						}
+						lastScrollX = time.Now()
+					}
+				}
+				if scrollY != 0 {
+					if time.Since(lastScrollY) > time.Second/time.Duration(math.Abs(float64(scrollY))) {
+						if err := me.Scroll(0, -scrollY); err != nil {
+							log.Printf("error scrolling mouse: %v", err)
+						}
+						lastScrollY = time.Now()
+					}
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
@@ -108,47 +159,38 @@ func main() {
 
 	for s := range g.Listen(ctx, LISTEN_TICK_INTERVAL) {
 		log.Printf("state: %+v", s)
-		if scrollX = s.AxisData[3]; scrollX > 0 {
-			scrollX = 1
-		} else if scrollX < 0 {
-			scrollX = -1
-		} else {
-			scrollX = 0
-		}
+		scrollX = s.AxisData[3] / 5000
+		scrollY = s.AxisData[4] / 5000
 
-		if scrollY = s.AxisData[4]; scrollY > 0 {
-			scrollY = 1
-		} else if scrollY < 0 {
-			scrollY = -1
-		} else {
-			scrollY = 0
-		}
-
-		if s.Buttons&16 == 16 {
-			leftMouse = true
-		} else {
-			leftMouse = false
-		}
-		if s.Buttons&32 == 32 {
-			rightMouse = true
-		} else {
-			rightMouse = false
-		}
-		if s.Buttons&256 == 256 {
-			super = true
-		} else {
-			super = false
-		}
+		kspace = s.Buttons&1 == 1
+		lkm = s.Buttons&16 == 16
+		rkm = s.Buttons&32 == 32
+		super = s.Buttons&256 == 256
+		escape = s.Buttons&128 == 128
+		keyV = s.Buttons&2 == 2
+		keyC = s.Buttons&4 == 4
+		enter = s.Buttons&8 == 8
+		ctrl = s.Buttons&64 == 64
 
 		moveX, moveY = float64(s.AxisData[0])/(1<<15), float64(s.AxisData[1])/(1<<15)
-		speedup := float64(s.AxisData[2]) / (1 << 15)
+		speedup := float64(s.AxisData[5]) / (1 << 15)
 		if speedup > 0 {
 			maxSpeed = MAX_SPEED + MAX_SPEED*speedup
 		} else {
 			maxSpeed = MAX_SPEED
 		}
-	}
 
+		kleft, kright = s.AxisData[6] < 0, s.AxisData[6] > 0
+		kup, kdown = s.AxisData[7] < 0, s.AxisData[7] > 0
+	}
+	cancel()
 	<-ctx.Done()
 	log.Println("Exiting")
+}
+
+func absInt(i int) int {
+	if i < 0 {
+		return -i
+	}
+	return i
 }
