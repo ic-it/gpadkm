@@ -7,4 +7,4 @@ require (
 	github.com/ynsta/uinput v0.0.0-20170902160421-4d1af569ef38
 )
 
-require golang.org/x/sys v0.21.0 // indirect
+require golang.org/x/sys v0.22.0 // indirect

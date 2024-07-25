@@ -129,6 +129,13 @@ func main() {
 							log.Printf("error releasing key: %v", err)
 						}
 					}
+
+					if k == uinput.KEY_LEFTMETA && v {
+						err := g.Rumble(0x8000, 0x8000, 200)
+						if err != nil {
+							log.Printf("error rumbling: %v", err)
+						}
+					}
 				}
 
 				moveX := int(moveX * maxSpeed)

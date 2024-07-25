@@ -2,7 +2,9 @@ package gpadkm
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/0xcafed00d/joystick"
@@ -11,6 +13,7 @@ import (
 // Gamepad wraps the joystick package
 type Gamepad struct {
 	joystick joystick.Joystick
+	fd       int
 	sync.Mutex
 }
 
@@ -21,7 +24,29 @@ func NewGamepad(jsid int) (*Gamepad, error) {
 		return nil, err
 	}
 
-	return &Gamepad{joystick: js}, nil
+	jsfile := fmt.Sprintf("/dev/input/js%d", jsid)
+	fd, err := syscall.Open(jsfile, syscall.O_RDWR|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		js.Close()
+		return nil, err
+	}
+
+	return &Gamepad{joystick: js, fd: fd}, nil
+}
+
+// Rumble sends a rumble command to the Gamepad
+func (g *Gamepad) Rumble(strong, weak, length int) error {
+	const devicePath = "/dev/input/event16" // Adjust this to your device's event path
+	if err := rumble(
+		devicePath,
+		strong,
+		weak,
+		length,
+	); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Close closes the Gamepad
