@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math"
 	"os"
@@ -18,7 +19,26 @@ const (
 )
 
 func main() {
-	g, err := gpadkm.NewGamepad(0)
+	evDev, err := gpadkm.GetAvailableEventDevices()
+	if err != nil {
+		log.Fatalf("error getting available event devices: %v", err)
+	}
+	if len(evDev) == 0 {
+		log.Fatalf("no event devices found")
+	}
+	fmt.Printf("Select an event device:\n")
+	for i, d := range evDev {
+		fmt.Printf("  %d: %s\n", i, d.Name)
+	}
+
+	var evDevIdx int
+	fmt.Printf("Enter the event device index [0-%d]: ", len(evDev)-1)
+	fmt.Scanf("%d", &evDevIdx)
+	if evDevIdx < 0 || evDevIdx >= len(evDev) {
+		log.Fatalf("invalid event device index")
+	}
+
+	g, err := gpadkm.NewGamepad(0, evDev[evDevIdx].Path)
 	if err != nil {
 		log.Fatalf("error creating gamepad: %v", err)
 	}
@@ -49,6 +69,26 @@ func main() {
 		log.Fatalf("error creating keyboard emulator: %v", err)
 	}
 
+	println(
+		"Gamepad Keyboard Mouse\n" +
+			"  Left Stick: Move Mouse\n" +
+			"  Right Stick: Scroll\n" +
+			"  A: Space\n" +
+			"  B: \"V\"\n" +
+			"  X: \"C\"\n" +
+			"  Y: Enter\n" +
+			"  Left Bumper: Left Mouse Button\n" +
+			"  Right Bumper: Right Mouse Button\n" +
+			"  Left+Right Bumper: Middle Mouse Button\n" +
+			"  Start: Escape\n" +
+			"  Select: CTRL\n" +
+			"  Button Logo: Super\n" +
+			"  Right Trigger: Speed Up\n" +
+			"  Pad Up/Down/Left/Right: Arrow Keys\n" +
+			"  Left Stick Pressed + Right Stick Pressed: Toggle Enabled\n" +
+			"  Press CTRL+C to exit\n",
+	)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	log.Println("Press CTRL+C to exit")
@@ -60,12 +100,16 @@ func main() {
 	escape := false
 	lkm, rkm := false, false
 	kup, kdown, kleft, kright := false, false, false, false
+	lstickPressed, rstickPressed := false, false
 
 	kspace := false
 	enter := false
 	lastScrollX, lastScrollY := time.Now(), time.Now()
 	keyV, keyC := false, false
 	ctrl := false
+
+	rumbled := false
+	enabled := true
 	go func(ctx context.Context) {
 		for {
 			keymap := map[uinput.EventCode]bool{
@@ -82,6 +126,15 @@ func main() {
 				uinput.KEY_V:        keyV,
 				uinput.KEY_C:        keyC,
 				uinput.KEY_LEFTCTRL: ctrl,
+			}
+			if lstickPressed && rstickPressed {
+				log.Println("Toggle enabled")
+				enabled = !enabled
+				time.Sleep(500 * time.Millisecond)
+			}
+			if !enabled {
+				time.Sleep(100 * time.Millisecond)
+				continue
 			}
 			select {
 			case <-ctx.Done():
@@ -131,10 +184,15 @@ func main() {
 					}
 
 					if k == uinput.KEY_LEFTMETA && v {
-						err := g.Rumble(0x8000, 0x8000, 200)
-						if err != nil {
-							log.Printf("error rumbling: %v", err)
+						if !rumbled {
+							err := g.Rumble(0x8000, 0x8000, 100)
+							if err != nil {
+								log.Printf("error rumbling: %v", err)
+							}
+							rumbled = true
 						}
+					} else if k == uinput.KEY_LEFTMETA && !v {
+						rumbled = false
 					}
 				}
 
@@ -174,6 +232,8 @@ func main() {
 		rkm = s.Buttons&32 == 32
 		super = s.Buttons&256 == 256
 		escape = s.Buttons&128 == 128
+		lstickPressed = s.Buttons&512 == 512
+		rstickPressed = s.Buttons&1024 == 1024
 		keyV = s.Buttons&2 == 2
 		keyC = s.Buttons&4 == 4
 		enter = s.Buttons&8 == 8

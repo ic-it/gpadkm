@@ -1,6 +1,6 @@
 module github.com/ic-it/gpadkm
 
-go 1.22.2
+go 1.23
 
 require (
 	github.com/0xcafed00d/joystick v1.0.1

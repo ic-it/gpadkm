@@ -14,11 +14,13 @@ import (
 type Gamepad struct {
 	joystick joystick.Joystick
 	fd       int
+	eventDev string // path to the event device
 	sync.Mutex
 }
 
 // NewGamepad creates a new Gamepad
-func NewGamepad(jsid int) (*Gamepad, error) {
+func NewGamepad(jsid int, eventDev string) (*Gamepad, error) {
+
 	js, err := joystick.Open(jsid)
 	if err != nil {
 		return nil, err
@@ -31,14 +33,14 @@ func NewGamepad(jsid int) (*Gamepad, error) {
 		return nil, err
 	}
 
-	return &Gamepad{joystick: js, fd: fd}, nil
+	return &Gamepad{joystick: js, fd: fd, eventDev: eventDev}, nil
 }
 
 // Rumble sends a rumble command to the Gamepad
 func (g *Gamepad) Rumble(strong, weak, length int) error {
-	const devicePath = "/dev/input/event16" // Adjust this to your device's event path
+	// run this command to find the device path:
 	if err := rumble(
-		devicePath,
+		g.eventDev,
 		strong,
 		weak,
 		length,
